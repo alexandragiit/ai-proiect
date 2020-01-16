@@ -13,10 +13,10 @@ import pandas as pd
 from datetime import datetime
 
 
-# In[410]:
+# In[485]:
 
 
-fileName = 'polidataset.csv'
+fileName = 'Dataset.csv'
 class skynet: 
     def __init__(self, num_layers, num_neurons_layer, rate, activation, n_epoch):
         self.num_layers = num_layers
@@ -46,7 +46,7 @@ class skynet:
         min_max_scaler = preprocessing.MinMaxScaler()
         x_scaled = min_max_scaler.fit_transform(data)
         return x_scaled
-#         normalizarea presupune ca toate valorile sa fie numerice si sa fie in [0, 1]
+#       #  normalizarea presupune ca toate valorile sa fie numerice si sa fie in [0, 1]
 #         upperLimit = 1
 #         return np.array(((self.dataset-self.dataset.min())/(self.dataset.max()-self.dataset.min()))*upperLimit)
 
@@ -150,7 +150,7 @@ class skynet:
         return train_set, valid_set, test_set
     
 #
-    def train(self, train_data, train_target, gd):
+    def train(self, train_data, train_target, gd = 0, log = False, clipping = False):
         miu = 0.5
        
         self.weights[0] = np.random.normal(0.0, 1/math.sqrt(self.ndata), (self.num_neurons[0], self.ndata))
@@ -177,8 +177,8 @@ class skynet:
                     layer = act
                 
                 #eroare pentru ultimul layer
-#                 last_error = self.layers[self.num_layers-1] - self.oneHot(train_target[j])
-                last_error = self.layers[self.num_layers-1] - train_target[j]
+                last_error = self.layers[self.num_layers-1] - self.oneHot(train_target[j])
+#                 last_error = self.layers[self.num_layers-1] - train_target[j]
             
                 change = np.reshape(self.layers[self.num_layers-2], (1, self.num_neurons[self.num_layers-2])) * last_error
                 bias_change = np.dot(np.reshape(self.bias[self.num_layers-1], (1, self.num_neurons[self.num_layers-1])), last_error)
@@ -203,6 +203,12 @@ class skynet:
                     else:
                         change = np.reshape(self.layers[i-1], (1, self.num_neurons[i-1])) * error
                     bias_change = np.dot(np.reshape(self.bias[i], (1, self.num_neurons[i])), error)
+                    
+                    if(clipping):
+                        l2 = np.linalg.norm(change) + 0.000000001
+                        l2_b = np.linalg.norm(bias_change) + 0.0000000001
+                        change = change/l2
+                        bias_change = bias_change/l2_b
                     #--------------------------
                     
                     
@@ -217,21 +223,24 @@ class skynet:
                             momentum = miu * last_it_weights[i]
                             momentum_b = miu * last_it_bias[i]
                             #----------------------
-                            self.new_weights[i] = self.weights[i] - self.rate*change + momentum
+                            self.new_weights[i] -=  self.rate*change + momentum
                             self.bias[i] -=  self.rate*bias_change + momentum_b
                     elif(gd == 2):
                         if( j != 0 ):
-                            #-------bkp with variable learnin rate and momentul
+                            #-------bkp with variable learnin rate and momentul cu clipping
                             momentum = miu * last_it_weights[i]
                             momentum_b = miu * last_it_bias[i]
-                            if(self.layer_error[i] > 1.04*last_it_error[i]):
+                            if(np.mean(self.layer_error[i]) > 1.04*np.mean(last_it_error[i])):
                                 beta = 0.7
                             else:
                                 beta = 1.05
                             rate = rate*beta
                             #------------
                             self.new_weights[i] = self.weights[i] - rate*change + momentum
+                            self.new_weights[i] = self.new_weights[i] / np.linalg.norm(self.new_weights[i]) # clipping gradients
                             self.bias[i] -=  rate*bias_change + momentum_b
+                            self.bias[i] = self.bias[i] / np.linalg.norm(self.bias[i])
+                            
                     elif(gd == 3):
                         if( j != 0):
                             # ------------conjugate bradient bkp
@@ -243,7 +252,20 @@ class skynet:
                                 minus = 1
                             pk[i] = -self.layer_change[i] + np.matmul(beta_k,last_pk[i])*minus
                              
-
+                    elif(gd == 4):
+                         if( j != 0 ):
+                            #-------bkp with variable learnin rate and momentul fara clipping
+                            momentum = miu * last_it_weights[i]
+                            momentum_b = miu * last_it_bias[i]
+                            if(np.mean(self.layer_error[i]) > 1.04*np.mean(last_it_error[i])):
+                                beta = 0.7
+                            else:
+                                beta = 1.05
+                            rate = rate*beta
+                            #------------
+                            self.new_weights[i] = self.weights[i] - rate*change + momentum
+                            self.bias[i] -=  rate*bias_change + momentum_b
+                           
     
                     last_error = error
                     
@@ -278,7 +300,8 @@ class skynet:
                 last_it_weights = self.weights.copy()
                 self.weights = self.new_weights.copy()
                 
-            self.createLog()
+            if(log):
+                self.createLog()
             print("Eroare: ", er/train_data.shape[0])
                 
                     
@@ -290,12 +313,13 @@ class skynet:
                     result = np.dot(self.weights[i], layer) + self.bias[i]
                     act = self.act_function[self.activation[i]](result)
                     layer = act
-                s = abs(test_target[j] - layer)
-                suma += s
-#                 if(np.argmax(layer) == test_target[j]):
-#                     suma += 1
+#                 s = abs(test_target[j] - layer)
+#                 suma += s
+                if(np.argmax(layer) == test_target[j]):
+                    suma += 1
                 
         print(suma/test_data.shape[0])
+    
     
     def predict(self, data):
         layer = data.reshape((self.ndata, 1))
@@ -306,34 +330,25 @@ class skynet:
         return layer
 
 
-# In[411]:
+# In[486]:
 
 
-# net = skynet(4, [50, 20, 10, 1], 0.0001, ["relu", "relu", "relu", "linear"], 5) #good result with simple bkp
-net = skynet(3, [10, 5, 1], 0.0001, ["relu", "relu", "linear"], 5)
-train, train_tar, validation, validation_tar, test, test_tar = net.load_dataset(fileName, True)
-train = net.normalize(train)
-test = net.normalize(test)
+# net = skynet(4, [50, 20, 10, 1], 0.001, ["relu", "relu", "relu", "linear"], 10) #good result with simple bkp
+# # net = skynet(3, [10, 5, 1], 0.001, ["relu", "relu", "linear"], 5)
+# train, train_tar, validation, validation_tar, test, test_tar = net.load_dataset(fileName, True)
+# train = net.normalize(train)
+# test = net.normalize(test)
 
-# net = skynet(2, [100,10], 0.1, ["sigmoid", "sigmoid", "softmax"], 1)
-# train, validation, test = net.load_number_dataset()
-
-
-# In[412]:
+net = skynet(2, [100,10], 0.1, ["sigmoid", "sigmoid", "softmax"], 1)
+train, validation, test = net.load_number_dataset()
 
 
-net.train(train, train_tar, 3)
-net.test(test, test_tar)
-
-# net.train(train[0],train[1], 2)
-# net.test(test[0], test[1])
+# In[487]:
 
 
-# In[ ]:
+# net.train(train, train_tar, 1, True)
+# net.test(test, test_tar)
 
-
-# weight regularization (L1 - L2)
-# gradient clipping
-#  LSTM memory
-# net.predict(net.oneHot(test[0][0]))
+net.train(train[0],train[1], 0)
+net.test(test[0], test[1])
 
